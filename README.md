@@ -32,7 +32,7 @@ VLESS fallback routes to it.
 | `UUID` | required | VLESS/VMess id, also the Trojan password |
 | `DOMAIN` | empty | Public hostname for the links; empty means use the request `Host` header |
 | `PUBLIC_PORT` | `443` | Port written into the links |
-| `ENTRY_PORT` | `8080` | Public Xray port |
+| `ENTRY_PORT` | `$PORT`, else `8080` | Public Xray port |
 | `HTTP_PORT` | `3000` | Internal Node port (WS ports are +1, +2, +3) |
 | `SUB_PATH` | `sub` | Subscription path |
 | `NAME` | `Node` | Node name in the links |
@@ -68,6 +68,42 @@ Set `UUID` (and optionally `DOMAIN`) as service environment variables, then impo
 `https://<service-host>/sub` into your client.
 
 `always-on` is required: a suspended service drops every WebSocket connection.
+
+## Deploy from GitHub
+
+The Dockerfile must sit at the repository root (or pass `--root-dir`). Then connect the repo
+to an existing compute service:
+
+```bash
+insta services add compute node
+insta compute connect-repo <owner>/<repo> node --port 8080
+```
+
+- A **private** repo (InstaCloud GitHub App installed) redeploys on every push.
+- A **public** repo deploys once; later pushes do not redeploy.
+- `connect-repo` has no `--websocket` flag. The WebSocket setting lives on the service:
+  either deploy once with `insta deploy . --port 8080 --websocket` before connecting the repo,
+  or turn it on in the service settings in the console.
+- Set `UUID` as a service environment variable; never commit it.
+
+If you only need one deploy, `insta deploy . --port 8080 --websocket` from this directory is
+simpler and fully supported.
+
+## Other platforms
+
+The image is generic: one HTTP port, TLS terminated by the platform, WebSocket for transport.
+It runs anywhere that gives you (a) an HTTPS hostname, (b) WebSocket support, and (c) a
+process that stays up. `PORT` is honoured automatically when the platform injects it.
+
+- **Render / Railway / Koyeb / Zeabur / ClawCloud**: set `UUID`, enable WebSocket if the
+  platform exposes a toggle, and turn off idle sleep.
+- **Fly.io**: set `internal_port = 8080` in `fly.toml`; WebSocket works out of the box.
+- **Your own VPS**: run the container behind Caddy or nginx for TLS.
+
+If the platform rewrites the `Host` header, set `DOMAIN` so the subscription links stay correct.
+
+Not suitable for Vercel, Netlify or Cloudflare Workers: they do not run a long-lived process
+that can hold a server-side WebSocket.
 
 ## Limits
 

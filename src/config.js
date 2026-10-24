@@ -11,6 +11,24 @@ function intFromEnv(env, name, fallback) {
   return value;
 }
 
+// Pick three loopback ports that avoid the two ports we already hold, so an unusual
+// PORT value from a PaaS platform cannot collide with the internal inbounds.
+function allocateWsPorts(httpPort, entryPort) {
+  const used = new Set([httpPort, entryPort]);
+  const ws = {};
+  let candidate = 3001;
+
+  for (const name of ['vless', 'trojan', 'vmess']) {
+    while (used.has(candidate)) candidate += 1;
+    if (candidate > 65535) throw new Error('no free port left for the internal websocket inbounds');
+    ws[name] = candidate;
+    used.add(candidate);
+    candidate += 1;
+  }
+
+  return ws;
+}
+
 function loadConfig(env = process.env) {
   const uuid = (env.UUID || '').trim();
   if (!UUID_RE.test(uuid)) {
@@ -18,7 +36,8 @@ function loadConfig(env = process.env) {
   }
 
   const httpPort = intFromEnv(env, 'HTTP_PORT', 3000);
-  const entryPort = intFromEnv(env, 'ENTRY_PORT', 8080);
+  // Render, Railway, Koyeb and friends inject PORT and route to it.
+  const entryPort = intFromEnv(env, 'ENTRY_PORT', intFromEnv(env, 'PORT', 8080));
   const publicPort = intFromEnv(env, 'PUBLIC_PORT', 443);
 
   const subPath = (env.SUB_PATH || 'sub').replace(/^\/+|\/+$/g, '');
@@ -26,13 +45,11 @@ function loadConfig(env = process.env) {
     throw new Error('SUB_PATH may only contain letters, digits, dot, underscore and dash');
   }
 
-  const ws = { vless: httpPort + 1, trojan: httpPort + 2, vmess: httpPort + 3 };
-  if (ws.vmess > 65535) throw new Error('HTTP_PORT is too high; internal websocket ports overflow');
-
-  const ports = [httpPort, entryPort, ws.vless, ws.trojan, ws.vmess];
-  if (new Set(ports).size !== ports.length) {
-    throw new Error(`port conflict between HTTP_PORT, ENTRY_PORT and the internal websocket ports: ${ports.join(', ')}`);
+  if (entryPort === httpPort) {
+    throw new Error(`ENTRY_PORT and HTTP_PORT must differ (both ${entryPort})`);
   }
+
+  const ws = allocateWsPorts(httpPort, entryPort);
 
   return {
     uuid,
